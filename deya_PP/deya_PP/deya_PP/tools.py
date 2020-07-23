@@ -1,16 +1,24 @@
 import datetime
 import re
 import smtplib
+
+import openpyxl
+import parsel
+import pytesseract
+import requests
+import pandas as pd
+
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from urllib.request import urlretrieve
+from PIL import ImageDraw, Image
+from openpyxl import Workbook
+from deya_PP.properties import EMAIL_HOST_USER, EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_PASSWORD, EMAIL_TO, COMMON_EXCEL, \
+    PP_EXCEL_TEMPLATE, PE_EXCEL_TEMPLATE, PP_AIM_FILE
 
-from PIL import ImageDraw
 
 # 解析爬取的内容
-from deya_PP.properties import EMAIL_HOST_USER, EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_PASSWORD, EMAIL_TO
-
-
 def parse_en(enterprise, content):
     pattern = re.compile(r"[-\dA-Za-z]+", re.S)
     res = []
@@ -33,6 +41,7 @@ def get_table(threshold=115):
             table.append(1)
     return table
 
+
 # 图片降噪
 def get_pixel(image, x, y, G, N):
 
@@ -43,26 +52,26 @@ def get_pixel(image, x, y, G, N):
     else:
         L = False
 
-    nearDots = 0
+    near_dots = 0
 
     if L == (image.getpixel((x - 1, y - 1)) > G):
-        nearDots += 1
+        near_dots += 1
     if L == (image.getpixel((x - 1, y)) > G):
-        nearDots += 1
+        near_dots += 1
     if L == (image.getpixel((x - 1, y + 1)) > G):
-        nearDots += 1
+        near_dots += 1
     if L == (image.getpixel((x, y - 1)) > G):
-        nearDots += 1
+        near_dots += 1
     if L == (image.getpixel((x, y + 1)) > G):
-        nearDots += 1
+        near_dots += 1
     if L == (image.getpixel((x + 1, y - 1)) > G):
-        nearDots += 1
+        near_dots += 1
     if L == (image.getpixel((x + 1, y)) > G):
-        nearDots += 1
+        near_dots += 1
     if L == (image.getpixel((x + 1, y + 1)) > G):
-        nearDots += 1
+        near_dots += 1
 
-    if nearDots < N:
+    if near_dots < N:
         return image.getpixel((x, (y - 1)))
     else:
         return None
@@ -97,8 +106,7 @@ def verify_date(url):
 
 
 # 发送邮件
-def succeed_and_send_email(file_path):
-
+def send_email(file_path_list):
     sender = EMAIL_HOST_USER
     receivers = EMAIL_TO
 
@@ -106,48 +114,121 @@ def succeed_and_send_email(file_path):
     message = MIMEMultipart()
     message['From'] = sender  # 发送者
     message['To'] = ';'.join(receivers)  # 接收者
-    subject = "PP网址爬虫成功！请查看附件获取excel文件！"
+    subject = "PP与PE爬虫"
     message['Subject'] = Header(subject, 'utf-8')
 
     # 邮件正文内容
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    content = "您好！\n系统检测到您于北京时间：" + now + "进行了一次PP网址的爬虫，爬取到的数据经过处理已经发送到您的邮箱，请查看附件收取！"
+    if len(file_path_list) == 0:
+        content = "PP和PE最新网址都还没出来。\n" + now
+    elif len(file_path_list) == 2:
+        content = "请查看附件。\n" + now
+    elif PP_AIM_FILE in file_path_list:
+        content = "PE最新网址还没出来，PP粒文件在附件中。\n" + now
+    else:
+        content = "PP最新网址还没出来，PE粒文件在附件中。\n" + now
     message.attach(MIMEText(content, 'plain', 'utf-8'))
 
-    # 构造附件
-    att = MIMEText(open(file_path, 'rb').read(), 'base64', 'utf-8')
-    att["Content-Type"] = 'application/octet-stream'
-    att.add_header("Content-Disposition", "attachment", filename=("gbk", "", file_path))
-    message.attach(att)
-    post_email(sender, receivers, message)
-
-
-def failed_and_send_email():
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    subject = "PP网址爬虫提醒！"
-    message = "您好！\n系统检测到您于北京时间：" + now + "进行了一次PP网址的爬虫，但是今日的最新PP网址还没有发出来，请稍后再试！\n（建议下午4点以后执行该爬虫程序）"
-
-    sender = EMAIL_HOST_USER
-    receivers = EMAIL_TO
-
-    # 三个参数：第一个为文本内容，第二个 plain 设置文本格式，第三个 utf-8 设置编码
-    message = MIMEText(message, 'plain', 'utf-8')
-    message['From'] = sender  # 发送者
-    message['To'] = ';'.join(receivers)  # 接收者
-
-    message['Subject'] = Header(subject, 'utf-8')
-    post_email(sender, receivers, message)
-
-
-def post_email(sender, receivers, message):
+    # 构造附
+    if len(file_path_list) > 0:
+        for f in file_path_list:
+            att = MIMEText(open(f, 'rb').read(), 'base64', 'utf-8')
+            att["Content-Type"] = 'application/octet-stream'
+            att.add_header("Content-Disposition", "attachment", filename=("gbk", "", f))
+            message.attach(att)
     try:
         smtp = smtplib.SMTP()
         smtp.connect(host=EMAIL_HOST, port=EMAIL_PORT)
         smtp.login(user=EMAIL_HOST_USER, password=EMAIL_HOST_PASSWORD)
         smtp.sendmail(sender, receivers, message.as_string())
         smtp.quit()
-        print("邮件发送成功")
+        print("邮件发送成功。")
     except smtplib.SMTPException as e:
         print(e)
-        print("邮件发送失败")
+        print("邮件发送失败。")
+
+
+# 验证码识别
+def code_verify(img_url, code_verify_url):
+    urlretrieve(img_url, './code.png')
+    image = Image.open('./code.png')
+    content = pytesseract.image_to_string(image)
+    res = requests.get(code_verify_url.format(code=content))
+    return res
+
+
+# 获取PP或PE的最新网址
+def get_url(search_url, keywords):
+    response = parsel.Selector(
+        requests.post(search_url, {'pageNo': '1', 'keyword': keywords}).text)
+    url = response.xpath("//ul[@class='contentList']/li[1]//a/@href").get()
+    return url
+
+
+# 生成中间文件
+def gen_temp_file(item, filename):
+    wb = Workbook()
+    ws = wb['Sheet']
+    ws.title = "PP粒"
+    title = item['title']
+    content = item['content']
+    ws.append(t for t in title)
+    row_index = 2
+    for c in content:
+        if len(c) == len(title):
+            for i in range(1, len(c) + 1):
+                ws.cell(row_index, i).value = c[i - 1]
+        elif len(c) == len(title) - 1:
+            for i in range(1, len(c) + 1):
+                ws.cell(row_index, i + 1).value = c[i - 1]
+        elif len(c) == len(title) - 2:
+            for i in range(1, len(c) + 1):
+                ws.cell(row_index, i + 2).value = c[i - 1]
+        else:
+            for i in range(1, len(c) + 1):
+                ws.cell(row_index, i + 3).value = c[i - 1]
+        row_index += 1
+    wb.save(filename)
+    df = pd.read_excel(filename, sheet_name=ws.title, index_col=False)
+    return df
+
+
+# 生成最终文件
+def gen_aim_file(sheet_name, additional_content, data_frame, max_col, origin_excel, origin_excel_sheet, AIM_FILE, name):
+    temp_file = pd.read_excel(COMMON_EXCEL, sheet_name=sheet_name, index_col=False)
+    num = [n for n in temp_file['型号']]
+    type_name = [t for t in temp_file['类别']]
+    num_type = dict(zip(num, type_name))
+    equip_dyn = parse_en(additional_content, data_frame['装置动态'])
+    enterprise_type = {}
+    for key in equip_dyn:
+        flag = 0
+        for t in equip_dyn[key]:
+            if t.startswith("停车"):
+                enterprise_type[key] = "停车"
+                flag = -1
+                continue
+            type_name = num_type.get(t, None)
+            if type_name:
+                flag = 1
+                enterprise_type[key] = type_name
+                continue
+        if flag == 0:
+            enterprise_type[key] = "找不到对应类型"
+    for i in range(2, max_col):
+        origin_excel_sheet.cell(4, i).value = enterprise_type.get(origin_excel_sheet.cell(1, i).value)
+    origin_excel.save(AIM_FILE)
+
+
+# 生成模板excel和excel_sheet
+def gen_excel_and_sheet(name, today):
+    middle_file_name = name + '_' + str(today) + '.xlsx'
+    if name == "PP":
+        origin_excel = openpyxl.load_workbook(PP_EXCEL_TEMPLATE)
+        origin_excel_sheet = origin_excel['PP排产']
+    else:
+        origin_excel = openpyxl.load_workbook(PE_EXCEL_TEMPLATE)
+        origin_excel_sheet = origin_excel['PE排产']
+    origin_excel_sheet.cell(4, 1).value = today.strftime("%Y/%m/%d")
+
+    return middle_file_name, origin_excel, origin_excel_sheet

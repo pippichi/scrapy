@@ -6,85 +6,40 @@
 # See: https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 import datetime
 import pandas as pd
+import os
 
-from openpyxl import Workbook
-import openpyxl
-
-from deya_PP.properties import PP_EXCEL, PP_EXCEL_TEMPLATE, PP_AIM_FILE
-from deya_PP.tools import parse_en, succeed_and_send_email
+from deya_PP.properties import PP_AIM_FILE, PE_AIM_FILE
+from deya_PP.tools import gen_temp_file, gen_aim_file, gen_excel_and_sheet, send_email
 
 
 class DeyaPpPipeline(object):
 
     def __init__(self):
         self.today = datetime.date.today()
-        self.middle_file_name = 'PP_' + str(self.today) + '.xlsx'
-        self.origin_excel = openpyxl.load_workbook(PP_EXCEL_TEMPLATE)
-        self.origin_excel_sheet = self.origin_excel['PP排产']
-        self.origin_excel_sheet.cell(4, 1).value = self.today.strftime("%Y/%m/%d")
-        self.MAX_COL = self.origin_excel_sheet.max_column
 
     def process_item(self, item, spider):
-        wb = Workbook()
-        ws = wb['Sheet']
-        ws.title = "PP粒"
-        title = item['title']
-        content = item['content']
-        ws.append(t for t in title)
-        row_index = 2
-        for c in content:
-            if len(c) == 5:
-                for i in range(1, len(c)+1):
-                    ws.cell(row_index, i).value = c[i-1]
-            elif len(c) == 4:
-                for i in range(1, len(c)+1):
-                    ws.cell(row_index, i+1).value = c[i-1]
-            else:
-                for i in range(1, len(c)+1):
-                    ws.cell(row_index, i+2).value = c[i-1]
-            row_index += 1
-        wb.save(self.middle_file_name)
-        df = pd.read_excel(self.middle_file_name, sheet_name=ws.title, index_col=False)
-        part1 = df.iloc[:, 1]
-        insert1 = []
-        temp_name = None
-        temp_index = 0
-        for p in part1:
-            if pd.isnull(p):
-                insert1 = insert1[:-1]
-                insert1.append(temp_name + str(temp_index) + '#')
-                temp_index += 1
-                insert1.append(temp_name + str(temp_index) + '#')
-            else:
-                temp_name = p
-                temp_index = 1
-                insert1.append(p)
-        df.insert(2, '石化名称备注', insert1)
-        temp_file = pd.read_excel(PP_EXCEL, sheet_name='PP排号', index_col=False)
-        num = [n for n in temp_file['型号']]
-        type_name = [t for t in temp_file['类别']]
-        num_type = dict(zip(num, type_name))
-        equip_dyn = parse_en(insert1, df['装置动态'])
-        enterprise_type = {}
-        for key in equip_dyn:
-            flag = 0
-            for t in equip_dyn[key]:
-                if t.startswith("停车"):
-                    enterprise_type[key] = "停车"
-                    flag = -1
-                    continue
-                type_name = num_type.get(t, None)
-                if type_name:
-                    flag = 1
-                    enterprise_type[key] = type_name
-                    continue
-            if flag == 0:
-                enterprise_type[key] = "找不到对应类型"
-        for i in range(2, self.MAX_COL):
-            self.origin_excel_sheet.cell(4, i).value = enterprise_type.get(self.origin_excel_sheet.cell(1, i).value)
+        # PP
+        if len(item['title']) == 5:
+            pp_middle_file_name, pp_origin_excel, pp_origin_excel_sheet = gen_excel_and_sheet("PP", self.today)
+            df = gen_temp_file(item, pp_middle_file_name)
+            additional_content = list(pd.read_excel('爬虫-PP.xlsx', sheet_name='Sheet1', index_col=False)['石化名称备注'])
+            gen_aim_file('PP排号', additional_content, df, pp_origin_excel_sheet.max_column, pp_origin_excel, pp_origin_excel_sheet, PP_AIM_FILE, "PP")
 
+        # PE
+        if len(item['title']) == 7:
+            pe_middle_file_name, pe_origin_excel, pe_origin_excel_sheet = gen_excel_and_sheet("PE", self.today)
+            df = gen_temp_file(item, pe_middle_file_name)
+            additional_content = list(pd.read_excel('爬虫备注-PE排产 (1).xlsx', sheet_name="Sheet1", index_col=False)['企业名称备注2'])
+            gen_aim_file('PE排号', additional_content, df, pe_origin_excel_sheet.max_column, pe_origin_excel, pe_origin_excel_sheet, PE_AIM_FILE, "PE")
         return item
 
     def close_spider(self, spider):
-        self.origin_excel.save(PP_AIM_FILE)
-        succeed_and_send_email(PP_AIM_FILE)
+        file_path_list = []
+        if os.path.exists(PP_AIM_FILE):
+            file_path_list.append(PP_AIM_FILE)
+        if os.path.exists(PE_AIM_FILE):
+            file_path_list.append(PE_AIM_FILE)
+        send_email(file_path_list)
+        if len(file_path_list) > 0:
+            for f in file_path_list:
+                os.remove(f)

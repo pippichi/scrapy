@@ -1,32 +1,17 @@
 # -*- coding: utf-8 -*-
-import scrapy
-import requests
-
-from urllib.request import urlretrieve
-from PIL import Image
-
-import time
 import parsel
-import pytesseract
+import scrapy
+import time
 
 from scrapy import FormRequest
 from deya_PP.items import DeyaPpItem
-from deya_PP.tools import verify_date, failed_and_send_email
-
-
-def title_and_content(response):
-    title = response.xpath("//div[@id='content']//tr[@class='firstRow']/td/text()").getall()
-    temp = response.xpath("//div[@id='content']//tr[not(contains(@class, 'firstRow'))]").getall()
-    content = []
-    for t in temp:
-        content.append(parsel.Selector(t).xpath("//td/text()").extract())
-    return title, content
+from deya_PP.tools import verify_date, get_url
+from deya_PP.tools import code_verify
 
 
 class DeyaPpSSpider(scrapy.Spider):
     name = 'deya_PP_s'
     allowed_domains = ['news.oilchem.net']
-    start_urls = None
     search_url = "https://search.oilchem.net/solrSearch/select.htm"
     login_succeed_url = 'https://passport.oilchem.net/member/login/login'
     timestamp = int(round(time.time() * 1000))
@@ -37,22 +22,26 @@ class DeyaPpSSpider(scrapy.Spider):
     password = 'cc7da6bca8aa4a5d9c0ebea54fb566ae'
     errorPaw = 'deya1589'
 
+    # 识别错误次数
+    count = 0
+
     def start_requests(self):
-        response = parsel.Selector(
-            requests.post(self.search_url, {'pageNo': '1', 'keyword': '[PP粒]：全国PP装置生产情况汇总'}).text)
-        self.start_urls = response.xpath("//ul[@class='contentList']/li[1]//a/@href").get()
+        pp_url = get_url(self.search_url, '[PP粒]：全国PP装置生产情况汇总')
+        pe_url = get_url(self.search_url, '[PE]：国内聚乙烯装置汇总')
 
-        # 验证url是否是今日的url
-        flag = verify_date(self.start_urls)
-        if not flag:
-            failed_and_send_email()
-            return
+        temp = code_verify(self.img_url, self.code_verify_url)
+        while temp.text != 'true':
+            self.count += 1
+            print("第{}次识别出错。".format(self.count))
+            temp = code_verify(self.img_url, self.code_verify_url)
 
-        urlretrieve(self.img_url, './PP_code.png')
-        image = Image.open('./PP_code.png')
-        content = pytesseract.image_to_string(image)
-        requests.get(self.code_verify_url.format(code=content))
-        yield FormRequest(url=self.login_succeed_url, formdata={'username': self.username, 'password': self.password, 'target': self.start_urls, 'errorPaw': self.errorPaw}, callback=self.parse)
+        # 验证pp_url是否是今日的url
+        if verify_date(pp_url):
+            yield FormRequest(url=self.login_succeed_url, formdata={'username': self.username, 'password': self.password, 'target': pp_url, 'errorPaw': self.errorPaw}, callback=self.parse)
+
+        # 验证pe_url是否是今日的url
+        if verify_date(pe_url):
+            yield FormRequest(url=self.login_succeed_url, formdata={'username': self.username, 'password': self.password, 'target': pe_url, 'errorPaw': self.errorPaw}, callback=self.parse)
 
     def parse(self, response):
         title = response.xpath("//div[@id='content']//tr[@class='firstRow']/td/text()").getall()

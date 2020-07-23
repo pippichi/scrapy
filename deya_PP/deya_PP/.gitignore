@@ -1,0 +1,19 @@
+# .idea
+.idea/*
+
+
+# Byte-compiled / optimized / DLL files
+deya_PP/__pycache__/*
+deya_PP/spiders/__pycache__/*
+
+# generated files
+*.png
+*.xlsx
+*.xls
+
+# 排除不需要删除的文件
+!PP排产模板.xlsx
+!爬虫-排号和排产.xlsx
+!PE排产模板.xlsx
+!爬虫备注-PE排产 (1).xlsx
+!爬虫-PP.xlsx
