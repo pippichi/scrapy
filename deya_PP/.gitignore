@@ -13,7 +13,6 @@ deya_PP/spiders/__pycache__/*
 
 # 排除不需要删除的文件
 !PP排产模板.xlsx
-!爬虫-排号和排产.xlsx
 !PE排产模板.xlsx
 !爬虫备注-PE排产 (1).xlsx
 !爬虫-PP.xlsx
