@@ -1,0 +1,17 @@
+# .idea
+.idea/*
+
+# .zip
+deya_cofeed/*.zip
+
+# Byte-compiled / optimized / DLL files
+deya_cofeed/__pycache__/*
+deya_cofeed/spiders/__pycache__/*
+
+# Ignore logs
+/deya_cofeed/log/*
+
+# generated files
+*.xlsx
+cofeed.sh
+*/config.ini
