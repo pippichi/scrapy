@@ -87,22 +87,22 @@ class Spider17(Spider):
 
     # 爬虫开始
     def start_requests(self):
-        # form_data = {
-        #     "wbillWeeklyQuotes.variety": "pp",
-        #     "year": str(self.year),
-        #     "month": str(self.month - 1),
-        #     "day": str(self.date),
-        # }
-        # return [
-        #     FormRequest(
-        #         # headers = self.get_headers(self.host_dce),
-        #         url = self.wbillWeeklyQuotesUrl,
-        #         formdata = form_data,
-        #         meta={'date': self.str_today_date},
-        #         dont_filter = True,
-        #         callback = self.w_bill_weekly_quotes
-        #     )
-        # ]
+        form_data = {
+            "wbillWeeklyQuotes.variety": "pp",
+            "year": str(self.year),
+            "month": str(self.month - 1),
+            "day": str(self.date),
+        }
+        return [
+            FormRequest(
+                # headers = self.get_headers(self.host_dce),
+                url = self.wbillWeeklyQuotesUrl,
+                formdata = form_data,
+                meta={'date': self.str_today_date},
+                dont_filter = True,
+                callback = self.w_bill_weekly_quotes
+            )
+        ]
 
         # # 历史仓单日数据 （目前暂时使用excel下载来的数据直接导入，详情见 data_excel/spider_17/pp_cd.py）
         # date_list = pd.date_range(start='2017-01-01', end='2017-01-31')
@@ -122,19 +122,19 @@ class Spider17(Spider):
         #         callback = self.w_bill_weekly_quotes
         #     )
 
-        # 历史日成交持仓
-        date_list = pd.date_range(start='2017-08-01', end='2017-08-02')
-        contract_url = 'http://service.99qh.com/hold2/MemberHold/GetAgreementInfo.aspx?date={}&goodsid=84'
-        for date in date_list:
-            str_date = date.strftime('%Y-%m-%d')
-            new_contract_url = contract_url.format(str_date)
-            # time.sleep(self.sleep_time)
-            yield Request(
-                dont_filter = True,
-                url = new_contract_url,
-                meta = {'date': str_date},
-                callback = self.get_contract_hst
-            )
+        # # 历史日成交持仓
+        # date_list = pd.date_range(start='2017-08-01', end='2017-08-02')
+        # contract_url = 'http://service.99qh.com/hold2/MemberHold/GetAgreementInfo.aspx?date={}&goodsid=84'
+        # for date in date_list:
+        #     str_date = date.strftime('%Y-%m-%d')
+        #     new_contract_url = contract_url.format(str_date)
+        #     # time.sleep(self.sleep_time)
+        #     yield Request(
+        #         dont_filter = True,
+        #         url = new_contract_url,
+        #         meta = {'date': str_date},
+        #         callback = self.get_contract_hst
+        #     )
 
 
     # 仓单日报

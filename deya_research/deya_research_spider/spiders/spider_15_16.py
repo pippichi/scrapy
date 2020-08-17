@@ -8,13 +8,9 @@ from scrapy.http import Request, FormRequest
 from scrapy.spiders import Spider
 from scrapy.selector import Selector
 
-from PIL import Image
-from io import BytesIO
-from urllib.request import urlretrieve
-
 import datetime
 import time
-import pytesseract
+import json
 
 from deya_research_spider.items import Spider1516Item
 from deya_research_spider.tools import code_verify
@@ -28,6 +24,7 @@ class Spider1516(Spider):
     url_check_code = "https://passport.oilchem.net/member/login/checkImgCode"
     code_verify_url = 'https://passport.oilchem.net/member/login/checkImgCode?code={code}'
     pp_market_url = "https://dc.oilchem.net/price_search/list.htm?businessType=3&specificationsId=&regionId=&memberId=&standard=&productState=&varietiesId=319&varietiesName=PP粒&templateType=7&flagAndTemplate=3-4%3B2-7%3B1-6%3B6-null&channelId=1777&oneName=塑料&twoName=通用塑料&dateType=0"
+    pp_market_hst = 'https://dc.oilchem.net/price_search/history.htm'
     # 休眠时间
     sleep_time = 2
     # 错误集合
@@ -48,6 +45,8 @@ class Spider1516(Spider):
             index = '5'
         elif (type == 'remark'):
             index = '2'
+        elif (type == 'standard'):
+            index = '23'
         if (tr.xpath("./td[last()-" + index + "]").extract()[0] == '<td></td>'):
             return content
         else:
@@ -154,32 +153,32 @@ class Spider1516(Spider):
         ]
 
     # 验证码校验与登录
-    def checkImgCode(self, response):
-        if (response.text == 'true'):
-            form_data = {
-                "username": "rockyeah",
-                "password": "cc7da6bca8aa4a5d9c0ebea54fb566ae"
-            }
-            return [
-                FormRequest(
-                    url=self.url_login,
-                    callback=self.afterLogin,
-                    formdata=form_data,
-                    dont_filter=True,
-                    headers=self.get_headers(self.host_login_oilchem)
-                )
-            ]
-        else:
-            print("验证码有误，请重新输入！")
-            time.sleep(self.sleep_time)
-            return [
-                Request(
-                    url=self.url_code,
-                    callback=self.getCode,
-                    dont_filter=True,
-                    headers=self.get_headers(host=self.host_login_oilchem)
-                )
-            ]
+    # def checkImgCode(self, response):
+    #     if (response.text == 'true'):
+    #         form_data = {
+    #             "username": "rockyeah",
+    #             "password": "cc7da6bca8aa4a5d9c0ebea54fb566ae"
+    #         }
+    #         return [
+    #             FormRequest(
+    #                 url=self.url_login,
+    #                 callback=self.afterLogin,
+    #                 formdata=form_data,
+    #                 dont_filter=True,
+    #                 headers=self.get_headers(self.host_login_oilchem)
+    #             )
+    #         ]
+    #     else:
+    #         print("验证码有误，请重新输入！")
+    #         time.sleep(self.sleep_time)
+    #         return [
+    #             Request(
+    #                 url=self.url_code,
+    #                 callback=self.getCode,
+    #                 dont_filter=True,
+    #                 headers=self.get_headers(host=self.host_login_oilchem)
+    #             )
+    #         ]
 
     # 登录跳转
     def afterLogin(self, response):
@@ -192,7 +191,7 @@ class Spider1516(Spider):
             )
         ]
 
-    # 开始抓取页面内容
+    # 开始抓取页面内容 （日抓取）
     def catchMarketValue(self, response):
         index_date = datetime.datetime.today().strftime('%Y-%m-%d')
         str_today = datetime.datetime.today().strftime('%m月%d日')
@@ -234,4 +233,61 @@ class Spider1516(Spider):
                                 self.err_list.append(err_content)
         print(self.err_list)
 
+    # 遍历PP粒各规格的URL
+    def beforeCatchHst(self, response):
+        sel = Selector(response)
+        tables = sel.xpath("//div[@class='tableList shows']")
+        business_id_list = []
+        standard_list = [
+            '均聚注塑', '共聚注塑', '纤维', '拉丝'
+        ]
+        form_data = {
+            'channelId': '0',
+            'varietiesId': '319',
+            'businessId': '',
+            'businessType': '3',
+            'queryStartTime': '20170101',
+            'queryEndTime': '20200811',
+            'indexType': '0',
+            'pageNumber': '1',
+            'pageSize': '1500'
+        }
+        # 开始循环读取数据
+        for table in tables:
+            table_trs = table.xpath("./div/table/tr")
+            del table_trs[0]
+            del table_trs[0]
+            area_name = table_trs[0].xpath("./td[last()]/input").attrib["data-region-name"].strip()
+            if (area_name == '华东地区' or area_name == '华北地区'):
+                for tr in table_trs:
+                    unit = self.getXpathContent(tr, "unit")
+                    td_last = tr.xpath("./td[last()]/input")
+                    # data_standard = td_last.attrib["data-standard"].strip()
+                    data_standard = self.getXpathContent(tr, "standard")
+                    if (unit == '元/吨' and (data_standard in standard_list)):
+                        data_id = td_last.attrib["data-id"].strip()
+                        business_id_list.append(data_id)
+        # business_id_list = ['8213', '8214']
+        for business_id in business_id_list:
+            form_data['businessId'] = business_id
+            yield FormRequest(
+                url=self.pp_market_hst,
+                callback=self.catchMarketValueHst,
+                formdata=form_data,
+                dont_filter=True,
+                headers=self.get_headers2(self.host_dc_oilchem)
+            )
 
+    # PP粒-市场价-历史数据爬取
+    def catchMarketValueHst(self, response):
+        page_info = json.loads(response.text)['pageInfo']
+        data_list = page_info['list']
+        if (len(data_list)):
+            for data_item in data_list:
+                item = Spider1516Item()
+                item['specificationName'] = data_item['specificationsName']
+                item['regionName'] = data_item['regionName']
+                item['standard'] = data_item['standard']
+                item['price'] = data_item['indexValue']
+                item['date'] = data_item['indexDate'].replace('/', '-')
+                yield item

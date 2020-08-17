@@ -1,20 +1,21 @@
+import datetime
 import random
 import time
 from decimal import Decimal
-from selenium.webdriver import ChromeOptions
-from selenium.webdriver import Chrome
 
 import parsel
 from openpyxl import Workbook
 import pandas as pd
 import scrapy
 from scrapy import FormRequest
-
-from deya_research_spider.settings import DRIVER_PATH
 from deya_research_spider.tools import code_verify, insert_value, parse_date
+import requests
 
 
 class Spider12Spider(scrapy.Spider):
+    """
+    12.全国PP装置生产情况汇总
+    """
     name = 'spider_12'
     allowed_domains = ['oilchem.net']
     search_url = 'https://list.oilchem.net/329/559/'
@@ -27,11 +28,6 @@ class Spider12Spider(scrapy.Spider):
     password = 'cc7da6bca8aa4a5d9c0ebea54fb566ae'
     errorPaw = 'deya1589'
 
-    options = ChromeOptions()
-    # options.add_argument('-headless')
-    options.add_argument("--no-sandbox")
-    driver = Chrome(executable_path=DRIVER_PATH, chrome_options=options)
-
     # 指标在数据库中的id
     capacity_of_production_id = 30
     repair_id = 32
@@ -40,47 +36,58 @@ class Spider12Spider(scrapy.Spider):
     # Sheet name
     sheet_name = "全国PP装置生产情况汇总"
 
+    # 模式1：爬历史数据；模式0：爬最新数据
+    mode = 0
+
+    @property
     def start_requests(self):
         try:
-            self.driver.get(url=self.search_url)
-            time.sleep(0.5)
-            uname = self.driver.find_element_by_xpath('//*[@id="chemical"]/div[4]/div[1]/div/div[2]/div[1]/input')
-            uname.send_keys("全国")
-            btn = self.driver.find_element_by_xpath('//*[@id="chemical"]/div[4]/div[1]/div/div[2]/div[1]/button')
-            btn.click()
-            time.sleep(3)
-            next_page = parsel.Selector(self.driver.page_source).xpath('//*[@id="chemical"]/div[4]/div[1]/ul/li[contains(@class, "next")]/@jp-data').extract_first()
-            last_page = parsel.Selector(self.driver.page_source).xpath('//*[@id="chemical"]/div[4]/div[1]/ul/li[contains(@class, "last")]/@jp-data').extract_first()
-            target_urls = []
-            while int(next_page) <= int(last_page):
-                temp = parsel.Selector(self.driver.page_source).xpath('//*[@id="chemical"]/div[4]/div[1]/div/div[3]/ul/li/a/@href').extract()
-                for t in temp:
-                    target_urls.append(t)
-                last_page_btn = self.driver.find_element_by_xpath('//*[@id="chemical"]/div[4]/div[1]/ul/li[contains(@class, "next")]')
-                last_page_btn.click()
-                time.sleep(1)
-                next_page = parsel.Selector(self.driver.page_source).xpath('//*[@id="chemical"]/div[4]/div[1]/ul/li[contains(@class, "next")]/@jp-data').extract_first()
-                if int(next_page) == 32:
-                    temp = parsel.Selector(self.driver.page_source).xpath(
-                        '//*[@id="chemical"]/div[4]/div[1]/div/div[3]/ul/li/a/@href').extract()
-                    for t in temp:
-                        target_urls.append(t)
-            print("共爬取 " + str(len(target_urls)) + ' 条url')
-            print(target_urls[-1])
-            self.driver.close()
+            res = parsel.Selector(requests.post("https://search.oilchem.net/solrSearch/select.htm", headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.125 Safari/537.36'},
+                                                data={'pageNo': 1, 'keyword': '全国PP装置生产情况汇总'}).text)
 
-            for target in target_urls:
-                # 识别错误次数
-                count = 0
-                if target[0: 4] != 'http':
-                    target = 'https:' + target
-                temp = code_verify(self.img_url, self.code_verify_url)
-                while temp.text != 'true':
-                    count += 1
-                    print("第{}次识别出错。".format(count))
+            if self.mode == 1:
+                urls = []
+                last_page = res.xpath('//*[@id="simpledatatable_info"]/text()').extract_first()[6: 8]
+                for i in range(1, int(last_page) + 1):
+                    res = parsel.Selector(requests.post("https://search.oilchem.net/solrSearch/select.htm", headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.125 Safari/537.36'}, data={'pageNo': i, 'keyword': '全国PP装置生产情况汇总'}).text)
+                    temp_urls = list(set(res.xpath('/html/body/div/div[3]/div[1]/div[2]/ul/li//a/@href').extract()))
+                    time.sleep(5 + random.uniform(1, 10))
+                    for tu in temp_urls:
+                        urls.append(tu)
+                print("共爬取 " + str(len(urls)) + ' 条url')
+                for target in urls:
+                    # 识别错误次数
+                    count = 0
+                    if target[0: 4] != 'http':
+                        target = 'https:' + target
                     temp = code_verify(self.img_url, self.code_verify_url)
-                yield FormRequest(url=self.login_succeed_url, formdata={'username': self.username, 'password': self.password, 'target': target, 'errorPaw': self.errorPaw}, callback=self.parse)
-                time.sleep(20 + int(random.uniform(10, 30)))
+                    while temp.text != 'true':
+                        count += 1
+                        print("第{}次识别出错。".format(count))
+                        temp = code_verify(self.img_url, self.code_verify_url)
+                    yield FormRequest(url=self.login_succeed_url, formdata={'username': self.username, 'password': self.password, 'target': target, 'errorPaw': self.errorPaw}, callback=self.parse)
+                    time.sleep(10 + int(random.uniform(1, 10)))
+            else:
+                url = res.xpath('/html/body/div/div[3]/div[1]/div[2]/ul/li[1]/h2/a/@href').extract_first()
+                date = res.xpath('/html/body/div/div[3]/div[1]/div[2]/ul/li[1]/div/div/span/span/text()').extract_first()
+                today = datetime.date.today().strftime('%Y-%m-%d')
+                if today != date:
+                    print("当日全国PP数据还没有出来")
+                    return
+                else:
+                    count = 0
+                    if url[0: 4] != 'http':
+                        url = 'https:' + url
+                    temp = code_verify(self.img_url, self.code_verify_url)
+                    while temp.text != 'true':
+                        count += 1
+                        print("第{}次识别出错。".format(count))
+                        temp = code_verify(self.img_url, self.code_verify_url)
+                    yield FormRequest(url=self.login_succeed_url,
+                                      formdata={'username': self.username, 'password': self.password, 'target': url,
+                                                'errorPaw': self.errorPaw}, callback=self.parse)
+
         except Exception as e:
             print('!' * 30)
             print('step1')

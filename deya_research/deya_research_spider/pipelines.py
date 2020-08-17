@@ -31,7 +31,7 @@ class DeyaResearchSpiderPipeline:
                 '共聚注塑': '低熔共聚'
             }
             self.date = item['date']
-            if (item['price'] != '-' and item['price'] != '--'):
+            if (item['price'] != '-' and item['price'] != '--' and item['price'] != ''):
                 self.df_market_price.loc[index, 'specificationName'] = item['specificationName']
                 self.df_market_price.loc[index, 'standard'] = standard_new_name[item['standard']]
                 self.df_market_price.loc[index, 'date'] = item['date']
@@ -56,8 +56,7 @@ class DeyaResearchSpiderPipeline:
     def close_spider(self, spider):
         if (spider.name == 'Spider1516'):
             self.df_market_price['price'] = self.df_market_price['price'].astype(float)
-            df_to_sql = pd.DataFrame()
-            df_to_sql_index = 0
+            date_list = self.df_market_price['date'].unique()
             needs_region_and_standard = [
                 {'region': '华东地区', 'standard': '拉丝', 'index_id': 64},
                 {'region': '华东地区', 'standard': '注塑', 'index_id': 65},
@@ -65,18 +64,23 @@ class DeyaResearchSpiderPipeline:
                 {'region': '华东地区', 'standard': '低熔共聚', 'index_id': 67},
                 {'region': '华北地区', 'standard': '拉丝', 'index_id': 68}
             ]
-            # 华东拉丝
-            for content in needs_region_and_standard:
-                min_price = self.df_market_price.loc[
-                    (self.df_market_price['regionName'] == content['region'])
-                    & (self.df_market_price['standard'] == content['standard'])
-                    & (self.df_market_price['price'] > 2000)
-                    ]['price'].min()
-                df_to_sql.loc[df_to_sql_index, 'date'] = self.date
-                df_to_sql.loc[df_to_sql_index, 'value'] = min_price
-                df_to_sql.loc[df_to_sql_index, 'index_id'] = content['index_id']
-                df_to_sql_index += 1
-            df_to_sql.to_sql(name="dy_index_data", con=self.con, if_exists="append", index=False)
+            for date in date_list:
+                df_to_sql = pd.DataFrame()
+                df_to_sql_index = 0
+                current_df = self.df_market_price.loc[self.df_market_price['date'] == date]
+                for content in needs_region_and_standard:
+                    now_price = current_df.loc[
+                        (current_df['regionName'] == content['region'])
+                        & (current_df['standard'] == content['standard'])
+                        & (current_df['price'] > 2000)
+                        ]['price']
+                    if (now_price.empty == False):
+                        min_price = now_price.min()
+                        df_to_sql.loc[df_to_sql_index, 'date'] = date
+                        df_to_sql.loc[df_to_sql_index, 'value'] = min_price
+                        df_to_sql.loc[df_to_sql_index, 'index_id'] = content['index_id']
+                        df_to_sql_index += 1
+                df_to_sql.to_sql(name="dy_pp_market_price", con=self.con, if_exists="append", index=False)
 
         elif (spider.name == 'Spider17'):
             self.df_spider_17['value'] = self.df_spider_17.loc[:, 'value'].apply(lambda x: float(x.replace(",", "")))

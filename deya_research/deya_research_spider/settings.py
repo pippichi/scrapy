@@ -87,4 +87,4 @@ ITEM_PIPELINES = {
 #HTTPCACHE_IGNORE_HTTP_CODES = []
 #HTTPCACHE_STORAGE = 'scrapy.extensions.httpcache.FilesystemCacheStorage'
 
-DRIVER_PATH = 'E:/迅雷下载/chromedriver.exe'
+DRIVER_PATH = 'F:/迅雷下载/chromedriver.exe'
