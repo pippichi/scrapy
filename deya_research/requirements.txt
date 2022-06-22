@@ -13,7 +13,7 @@ itemadapter==0.1.0
 itemloaders==1.0.1
 jmespath==0.10.0
 lxml==4.5.2
-numpy==1.19.1
+numpy==1.22.0
 pandas==1.1.0
 parsel==1.6.0
 Pillow==7.2.0
