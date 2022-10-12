@@ -28,6 +28,9 @@ ROBOTSTXT_OBEY = False
 # See https://docs.scrapy.org/en/latest/topics/settings.html#download-delay
 # See also autothrottle settings and docs
 DOWNLOAD_DELAY = 1
+RANDOMIZE_DOWNLOAD_DELAY = True
+# 更多关于随机访问时间间隔的设置请参考：https://blog.csdn.net/mouday/article/details/81512748（Python爬虫：scrapy爬虫设置随机访问时间间隔）、https://www.cnblogs.com/nuochengze/p/13152156.html（二十一：scrapy中设置下载延时与自动限速）
+
 # The download delay setting will honor only one of:
 #CONCURRENT_REQUESTS_PER_DOMAIN = 16
 #CONCURRENT_REQUESTS_PER_IP = 16
